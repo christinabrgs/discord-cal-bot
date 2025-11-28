@@ -29,6 +29,7 @@ type Event struct {
 	Description string
 	StartTime   time.Time
 	EndTime     time.Time
+	Location    string
 }
 
 type Cal struct {
@@ -48,6 +49,39 @@ func (c Cal) Subscribe(url string) ([]Event, error) {
 		return nil, err
 	}
 	fmt.Println(cal.Events())
+
+	for _, event := range cal.Events() {
+
+		name := event.GetProperty(ics.ComponentPropertySummary).Value
+
+		startTime := event.GetProperty(ics.ComponentPropertyDtStart).Value
+		startTimeParsed, err := time.Parse("20060102T150405Z", startTime)
+		if err != nil {
+			fmt.Println("Error parsing start time: ", err)
+		}
+
+		endTime := event.GetProperty(ics.ComponentPropertyDtEnd).Value
+		endTimeParsed, err := time.Parse("20060102T150405Z", endTime)
+		if err != nil {
+			fmt.Println("Error parsing end time: ", err)
+		}
+
+		summary := event.GetProperty(ics.ComponentPropertyDescription).Value
+
+		location := event.GetProperty(ics.ComponentPropertyLocation).Value
+
+		c.Events = append(c.Events, Event{
+			Name:        name,
+			Description: summary,
+			Location:    location,
+			StartTime:   startTimeParsed,
+			EndTime:     endTimeParsed,
+		})
+	}
+
+	fmt.Println("Subscribed to calendar with", len(c.Events), "events.")
+	// fmt.Println(c.Events)
+
 	return nil, nil
 }
 
