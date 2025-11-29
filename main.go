@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"log/slog"
 	"os"
 
 	bot "git.phlcode.club/discord-bot/bot"
@@ -14,8 +15,11 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	token := os.Getenv("discord_token")
+	token := os.Getenv("DISCORD_TOKEN")
 
 	bot.BotToken = token
-	bot.Run()
+	err = bot.Run()
+	if err != nil {
+		slog.Error("unable to start bot", slog.Any("error", err))
+	}
 }
