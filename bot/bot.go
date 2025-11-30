@@ -114,8 +114,7 @@ type Cal struct {
 
 // Events implements Commands.
 func (c Cal) Events() map[string][]Event {
-	c.logger.Warn("method `Unsubscribe` not implemented")
-	return make(map[string][]Event)
+	return c.events
 }
 
 func (c Cal) Subscribe(url string) error {
@@ -137,7 +136,7 @@ func (c Cal) Subscribe(url string) error {
 	c.events[url] = events
 
 	msg := fmt.Sprintf("subscribed to calendar at url %s with %d events...", url, len(events))
-	slog.Default().Info(msg, slog.String("url", url), slog.Any("events", events))
+	slog.Info(msg, slog.String("url", url), slog.Any("events", events))
 
 	return nil
 }
@@ -271,7 +270,8 @@ var (
 					content = "Input error: invalid input options, missing additional optional field"
 				}
 			case 3:
-
+				// TODO: Add implementation for subscribe AND filter
+				content = "SUBSCRIBE WITH FILTER"
 			default:
 				content = "Input error: invalid input options"
 			}
@@ -292,7 +292,8 @@ var (
 			case 0:
 				content = "Input error: missing URL"
 			case 1:
-
+				// TODO: Implement unsubscribe
+				content = "UNSUBSCRIBE"
 			default:
 				content = "Input error: invalid input options"
 			}
