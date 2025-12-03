@@ -12,14 +12,17 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"time"
 
+	"git.phlcode.club/discord-bot/database"
 	ics "github.com/arran4/golang-ical"
 	"github.com/bwmarrin/discordgo"
 )
 
 var (
 	errMissingProperty = errors.New("property is required but missing from event")
+	db, _              = database.InitDatabase(os.Getenv("DB_PATH"))
 )
 
 type filterField = string
@@ -54,6 +57,21 @@ type Event struct {
 	Location    string
 }
 
+func ParseTime(value string) (time.Time, error) {
+	if strings.HasSuffix(value, "Z") {
+		time, err := time.Parse(`20060102T150405Z`, value)
+		if err != nil {
+			return time, fmt.Errorf("unable to parse time: %s", err.Error())
+		}
+		return time, nil
+	}
+	time, err := time.Parse(`20060102T150405`, value)
+	if err != nil {
+		return time, fmt.Errorf("unable to parse time: %s", err.Error())
+	}
+	return time, nil
+}
+
 func (e *Event) ParseFromiCal(event *ics.VEvent) error {
 	err := handleICSProp(event.GetProperty(ics.ComponentPropertySummary), true, func(val string) error {
 		e.Name = val
@@ -63,7 +81,7 @@ func (e *Event) ParseFromiCal(event *ics.VEvent) error {
 		return errors.New("name (summary) is required but missing from event")
 	}
 	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDtStart), true, func(val string) error {
-		startTime, err := time.Parse("20060102T150405Z", val)
+		startTime, err := ParseTime(val)
 		if err != nil {
 			return fmt.Errorf("unable to parse start time: %s", err.Error())
 		}
@@ -77,7 +95,7 @@ func (e *Event) ParseFromiCal(event *ics.VEvent) error {
 		return errors.Join(errors.New("error handling start time: "), err)
 	}
 	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDtEnd), false, func(val string) error {
-		endTime, err := time.Parse("20060102T150405Z", val)
+		endTime, err := ParseTime(val)
 		if err != nil {
 			return fmt.Errorf("unable to parse end time: %s", err.Error())
 		}
@@ -96,7 +114,7 @@ func (e *Event) ParseFromiCal(event *ics.VEvent) error {
 		// This is purposefull empty because we should never get here since this isn't required
 	}
 	err = handleICSProp(event.GetProperty(ics.ComponentPropertyLocation), false, func(val string) error {
-		e.Description = val
+		e.Location = val
 		return nil
 	})
 	if err != nil {
@@ -122,6 +140,16 @@ func (c Cal) Subscribe(url string) error {
 	if err != nil {
 		return errors.Join(errors.New("unable to fetch and parse remote ics"), err)
 	}
+
+	calStatement := `INSERT INTO calendars (url, last_synced) VALUES (?, ?);`
+
+	result, err := db.Exec(calStatement, url, time.Now())
+	if err != nil {
+		return fmt.Errorf("error inserting calendar into database: %w", err)
+	}
+
+	fmt.Println("Inserted calendar with URL:", result)
+
 	events := make([]Event, len(cal.Events()))
 	for i, event := range cal.Events() {
 		var e Event
@@ -308,7 +336,6 @@ var (
 			}
 		},
 		"filter": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd Commands) {
-
 		},
 	}
 )

@@ -6,6 +6,7 @@ require (
 	github.com/arran4/golang-ical v0.3.2
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/joho/godotenv v1.5.1
+	modernc.org/sqlite v1.40.1
 )
 
 require (
@@ -21,5 +22,4 @@ require (
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.40.1 // indirect
 )
