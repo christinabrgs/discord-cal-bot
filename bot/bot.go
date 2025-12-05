@@ -158,13 +158,22 @@ func (c Cal) Subscribe(url string) error {
 			c.logger.Error("error parsing ical event", slog.Any("event", event), slog.Any("error", err))
 			continue
 		}
+
+		eventStatement := `INSERT INTO events (calendar_url, name, description, start_time, end_time, location) VALUES (?, ?, ?, ?, ?, ?);`
+
+		result, err := db.Exec(eventStatement, url, e.Name, e.Description, e.StartTime, e.EndTime, e.Location)
+		if err != nil {
+			return fmt.Errorf("error inserting event into database: %w", err)
+		}
 		events[i] = e
+
+		fmt.Println("Inserted event with ID:", result)
 	}
 
 	c.events[url] = events
 
 	msg := fmt.Sprintf("subscribed to calendar at url %s with %d events...", url, len(events))
-	slog.Info(msg, slog.String("url", url), slog.Any("events", events))
+	slog.Info(msg, slog.String("url", url), slog.Any("events", c.events))
 
 	return nil
 }
