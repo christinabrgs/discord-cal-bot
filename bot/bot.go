@@ -168,9 +168,18 @@ func (c Cal) Subscribe(url string) error {
 		events[i] = e
 
 		fmt.Println("Inserted event with ID:", result)
-	}
 
-	c.events[url] = events
+		event, err := discordgo.GuildScheduledEventCreate(guildID, &discordgo.GuildScheduledEventParams{
+			ChannelID:          string,
+			Name:               e.Name,
+			Description:        e.Description,
+			scheduledStartTime: &e.StartTime,
+			scheduledEndTime:   &e.EndTime,
+			PrivacyLevel:       discordgo.GuildScheduledEventPrivacyLevelGuildOnly,
+			Status:             discordgo.GuildScheduledEventStatusScheduled,
+		})
+	}
+	// c.events[url] = events
 
 	msg := fmt.Sprintf("subscribed to calendar at url %s with %d events...", url, len(events))
 	slog.Info(msg, slog.String("url", url), slog.Any("events", c.events))
