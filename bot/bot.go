@@ -127,7 +127,8 @@ func (e *Event) ParseFromiCal(event *ics.VEvent) error {
 type Cal struct {
 	logger slog.Logger
 	// TODO: This should be updated to handle like an SQLite db or some sort of persisted KV store
-	events map[string][]Event
+	events  map[string][]Event
+	session *discordgo.Session
 }
 
 // Events implements Commands.
@@ -135,7 +136,7 @@ func (c Cal) Events() map[string][]Event {
 	return c.events
 }
 
-func (c Cal) Subscribe(url string) error {
+func (c Cal) Subscribe(url string, guildID string) error {
 	cal, err := ics.ParseCalendarFromUrl(url)
 	if err != nil {
 		return errors.Join(errors.New("unable to fetch and parse remote ics"), err)
@@ -169,16 +170,17 @@ func (c Cal) Subscribe(url string) error {
 
 		fmt.Println("Inserted event with ID:", result)
 
-		event, err := discordgo.GuildScheduledEventCreate(guildID, &discordgo.GuildScheduledEventParams{
-			ChannelID:          string,
+		event, err := c.session.GuildScheduledEventCreate(guildID, &discordgo.GuildScheduledEventParams{
 			Name:               e.Name,
 			Description:        e.Description,
-			scheduledStartTime: &e.StartTime,
-			scheduledEndTime:   &e.EndTime,
-			PrivacyLevel:       discordgo.GuildScheduledEventPrivacyLevelGuildOnly,
+			ScheduledStartTime: &e.StartTime,
+			ScheduledEndTime:   &e.EndTime,
 			Status:             discordgo.GuildScheduledEventStatusScheduled,
 		})
+		// store discord event ID in the database associated with this event
+		_ = event
 	}
+
 	// c.events[url] = events
 
 	msg := fmt.Sprintf("subscribed to calendar at url %s with %d events...", url, len(events))
@@ -300,7 +302,7 @@ var (
 				content = "Input error: missing URL"
 			case 1:
 				url := options[0].StringValue()
-				err := cmd.Subscribe(url)
+				err := cmd.Subscribe(url, i.Interaction.GuildID)
 				if err != nil {
 					content = "Error subscribing to calendar: " + err.Error()
 					break
