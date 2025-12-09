@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"git.phlcode.club/discord-bot/database"
+	f "git.phlcode.club/discord-bot/dbFunctions"
 	ics "github.com/arran4/golang-ical"
 	"github.com/bwmarrin/discordgo"
 )
@@ -43,7 +44,7 @@ func handleICSProp(prop *ics.IANAProperty, required bool, handler func(val strin
 }
 
 type Commands interface {
-	Subscribe(url string) error
+	Subscribe(url string, guildID string) error
 	Unsubscribe(url string) error
 	Filter(url string, field filterField, pattern regexp.Regexp) error
 	Events() map[string][]Event
@@ -142,9 +143,7 @@ func (c Cal) Subscribe(url string, guildID string) error {
 		return errors.Join(errors.New("unable to fetch and parse remote ics"), err)
 	}
 
-	calStatement := `INSERT INTO calendars (url, last_synced) VALUES (?, ?);`
-
-	result, err := db.Exec(calStatement, url, time.Now())
+	result, err := f.InsertURL(db, url)
 	if err != nil {
 		return fmt.Errorf("error inserting calendar into database: %w", err)
 	}
@@ -160,9 +159,7 @@ func (c Cal) Subscribe(url string, guildID string) error {
 			continue
 		}
 
-		eventStatement := `INSERT INTO events (calendar_url, name, description, start_time, end_time, location) VALUES (?, ?, ?, ?, ?, ?);`
-
-		result, err := db.Exec(eventStatement, url, e.Name, e.Description, e.StartTime, e.EndTime, e.Location)
+		result, err := f.InsertEvent(db, url, e)
 		if err != nil {
 			return fmt.Errorf("error inserting event into database: %w", err)
 		}
