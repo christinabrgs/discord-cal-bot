@@ -38,7 +38,7 @@ type Commands interface {
 	Subscribe(url string, guildID string) error
 	Unsubscribe(url string) error
 	Filter(url string, field filterField, pattern regexp.Regexp) error
-	Events() map[string][]Event
+	Events() map[string][]types.Event
 }
 
 type Event struct {
@@ -52,12 +52,12 @@ type Event struct {
 type Cal struct {
 	logger slog.Logger
 	// TODO: This should be updated to handle like an SQLite db or some sort of persisted KV store
-	events  map[string][]Event
+	events  map[string][]types.Event
 	session *discordgo.Session
 }
 
 // Events implements Commands.
-func (c Cal) Events() map[string][]Event {
+func (c Cal) Events() map[string][]types.Event {
 	return c.events
 }
 
@@ -74,10 +74,10 @@ func (c Cal) Subscribe(url string, guildID string) error {
 
 	fmt.Println("Inserted calendar with URL:", result)
 
-	events := make([]Event, len(cal.Events()))
+	events := make([]types.Event, len(cal.Events()))
 	for i, event := range cal.Events() {
 		var e types.Event
-		err := types.ParseFromiCal(event)
+		err := e.ParseFromiCal(event)
 		if err != nil {
 			c.logger.Error("error parsing ical event", slog.Any("event", event), slog.Any("error", err))
 			continue
@@ -288,7 +288,7 @@ func Run() error {
 		return errors.Join(errors.New("invalid bot config"), err)
 	}
 	// TODO: Replace the default logger with a nicer library
-	cmds := Cal{events: make(map[string][]Event), logger: *slog.Default()}
+	cmds := Cal{events: make(map[string][]types.Event), logger: *slog.Default()}
 	discord.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
 			h(s, i, cmds)

@@ -30,7 +30,7 @@ type Event struct {
 
 var errMissingProperty = errors.New("property is required but missing from event")
 
-func handleICSProp(prop *ics.IANAProperty, required bool, handler func(val string) error) error {
+func HandleICSProp(prop *ics.IANAProperty, required bool, handler func(val string) error) error {
 	if prop != nil {
 		return handler(prop.Value)
 	} else if required {
@@ -54,15 +54,15 @@ func ParseTime(value string) (time.Time, error) {
 	return time, nil
 }
 
-func (e Event) ParseFromiCal(event ics.VEvent) error {
-	err := handleICSProp(event.GetProperty(ics.ComponentPropertySummary), true, func(val string) error {
+func (e Event) ParseFromiCal(event *ics.VEvent) error {
+	err := HandleICSProp(event.GetProperty(ics.ComponentPropertySummary), true, func(val string) error {
 		e.Name = val
 		return nil
 	})
 	if err != nil {
 		return errors.New("name (summary) is required but missing from event")
 	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDtStart), true, func(val string) error {
+	err = HandleICSProp(event.GetProperty(ics.ComponentPropertyDtStart), true, func(val string) error {
 		startTime, err := ParseTime(val)
 		if err != nil {
 			return fmt.Errorf("unable to parse start time: %s", err.Error())
@@ -76,7 +76,7 @@ func (e Event) ParseFromiCal(event ics.VEvent) error {
 		}
 		return errors.Join(errors.New("error handling start time: "), err)
 	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDtEnd), false, func(val string) error {
+	err = HandleICSProp(event.GetProperty(ics.ComponentPropertyDtEnd), false, func(val string) error {
 		endTime, err := ParseTime(val)
 		if err != nil {
 			return fmt.Errorf("unable to parse end time: %s", err.Error())
@@ -87,7 +87,7 @@ func (e Event) ParseFromiCal(event ics.VEvent) error {
 	if err != nil {
 		return errors.Join(errors.New("error handling end time: "), err)
 	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDescription), false, func(val string) error {
+	err = HandleICSProp(event.GetProperty(ics.ComponentPropertyDescription), false, func(val string) error {
 		e.Description = val
 		return nil
 	})
@@ -95,7 +95,7 @@ func (e Event) ParseFromiCal(event ics.VEvent) error {
 		slog.Default().Warn("Err was not nil when parsing optional event description", "error", err)
 		// This is purposefull empty because we should never get here since this isn't required
 	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyLocation), false, func(val string) error {
+	err = HandleICSProp(event.GetProperty(ics.ComponentPropertyLocation), false, func(val string) error {
 		e.Location = val
 		return nil
 	})
