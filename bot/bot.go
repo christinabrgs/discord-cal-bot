@@ -98,6 +98,10 @@ func (c Cal) Subscribe(url string, guildID string) error {
 			ScheduledEndTime:   &e.EndTime,
 			Status:             discordgo.GuildScheduledEventStatusScheduled,
 		})
+		if err != nil {
+			c.logger.Error("error creating discord guild scheduled event", slog.Any("event", e), slog.Any("error", err))
+		}
+
 		// store discord event ID in the database associated with this event
 		_ = event
 	}
@@ -111,7 +115,16 @@ func (c Cal) Subscribe(url string, guildID string) error {
 }
 
 func (c Cal) Unsubscribe(url string) error {
-	c.logger.Warn("method `Unsubscribe` not implemented")
+	// TODO send message for successful deletion to discord
+	_, err := f.DeleteCalendarByURL(db, url)
+	if err != nil {
+		return fmt.Errorf("error deleting calendar from database: %w", err)
+	}
+	_, err = f.DeleteEventsByURL(db, url)
+	if err != nil {
+		return fmt.Errorf("error deleting events from database: %w", err)
+	}
+
 	return nil
 }
 

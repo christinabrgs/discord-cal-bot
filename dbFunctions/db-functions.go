@@ -28,3 +28,23 @@ func InsertEvent(db *sql.DB, url string, e types.Event) (sql.Result, error) {
 	}
 	return result, nil
 }
+
+func DeleteCalendarByURL(db *sql.DB, url string) (sql.Result, error) {
+	result, err := db.Exec(
+		`DELETE FROM calendars WHERE url = ?;`,
+		url)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func DeleteEventsByURL(db *sql.DB, url string) (sql.Result, error) {
+	result, err := db.Exec(
+		`DELETE FROM events WHERE calendar_url = ?;`,
+		url)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
