@@ -1,14 +1,18 @@
-package dbFunctions
+package store
 
 import (
 	"database/sql"
 	"time"
 
-	"git.phlcode.club/discord-bot/types"
+	"git.phlcode.club/discord-bot/events"
 )
 
-func InsertURL(db *sql.DB, url string) (sql.Result, error) {
-	result, err := db.Exec(
+type SQLiteStore struct {
+	*sql.DB
+}
+
+func (s SQLiteStore) InsertURL(url string) (sql.Result, error) {
+	result, err := s.Exec(
 		`INSERT INTO calendars (url, last_synced) VALUES (?, ?);`,
 		url,
 		time.Now())
@@ -19,8 +23,8 @@ func InsertURL(db *sql.DB, url string) (sql.Result, error) {
 	return result, nil
 }
 
-func InsertEvent(db *sql.DB, url string, e types.Event) (sql.Result, error) {
-	result, err := db.Exec(
+func (s SQLiteStore) InsertEvent(url string, e events.Event) (sql.Result, error) {
+	result, err := s.Exec(
 		`INSERT INTO events (calendar_url, name, description, start_time, end_time, location) VALUES (?, ?, ?, ?, ?, ?);`,
 		url, e.Name, e.Description, e.StartTime, e.EndTime, e.Location)
 	if err != nil {
@@ -29,8 +33,8 @@ func InsertEvent(db *sql.DB, url string, e types.Event) (sql.Result, error) {
 	return result, nil
 }
 
-func DeleteCalendarByURL(db *sql.DB, url string) (sql.Result, error) {
-	result, err := db.Exec(
+func (s SQLiteStore) DeleteCalendarByURL(url string) (sql.Result, error) {
+	result, err := s.Exec(
 		`DELETE FROM calendars WHERE url = ?;`,
 		url)
 	if err != nil {
@@ -39,12 +43,16 @@ func DeleteCalendarByURL(db *sql.DB, url string) (sql.Result, error) {
 	return result, nil
 }
 
-func DeleteEventsByURL(db *sql.DB, url string) (sql.Result, error) {
-	result, err := db.Exec(
+func (s SQLiteStore) DeleteEventsByURL(url string) (sql.Result, error) {
+	result, err := s.Exec(
 		`DELETE FROM events WHERE calendar_url = ?;`,
 		url)
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func NewSQLiteStore(db *sql.DB) Store {
+	return SQLiteStore{db}
 }
