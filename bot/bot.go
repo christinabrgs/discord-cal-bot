@@ -6,21 +6,18 @@ package bot
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
-	"regexp"
-	"time"
 
-	ics "github.com/arran4/golang-ical"
+	c "git.phlcode.club/discord-bot/calendar"
+	"git.phlcode.club/discord-bot/database"
+	"git.phlcode.club/discord-bot/store"
 	"github.com/bwmarrin/discordgo"
 )
 
-var (
-	errMissingProperty = errors.New("property is required but missing from event")
-)
+var errMissingProperty = errors.New("property is required but missing from event")
 
 type filterField = string
 
@@ -29,127 +26,6 @@ const (
 	DescriptionField filterField = "description"
 	LocationField    filterField = "location"
 )
-
-func handleICSProp(prop *ics.IANAProperty, required bool, handler func(val string) error) error {
-	if prop != nil {
-		return handler(prop.Value)
-	} else if required {
-		return errMissingProperty
-	}
-	return nil
-}
-
-type Commands interface {
-	Subscribe(url string) error
-	Unsubscribe(url string) error
-	Filter(url string, field filterField, pattern regexp.Regexp) error
-	Events() map[string][]Event
-}
-
-type Event struct {
-	Name        string
-	Description string
-	StartTime   time.Time
-	EndTime     time.Time
-	Location    string
-}
-
-func (e *Event) ParseFromiCal(event *ics.VEvent) error {
-	err := handleICSProp(event.GetProperty(ics.ComponentPropertySummary), true, func(val string) error {
-		e.Name = val
-		return nil
-	})
-	if err != nil {
-		return errors.New("name (summary) is required but missing from event")
-	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDtStart), true, func(val string) error {
-		startTime, err := time.Parse("20060102T150405Z", val)
-		if err != nil {
-			return fmt.Errorf("unable to parse start time: %s", err.Error())
-		}
-		e.StartTime = startTime
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, errMissingProperty) {
-			return errors.New("start time is required but missing from event")
-		}
-		return errors.Join(errors.New("error handling start time: "), err)
-	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDtEnd), false, func(val string) error {
-		endTime, err := time.Parse("20060102T150405Z", val)
-		if err != nil {
-			return fmt.Errorf("unable to parse end time: %s", err.Error())
-		}
-		e.EndTime = endTime
-		return nil
-	})
-	if err != nil {
-		return errors.Join(errors.New("error handling end time: "), err)
-	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyDescription), false, func(val string) error {
-		e.Description = val
-		return nil
-	})
-	if err != nil {
-		slog.Default().Warn("Err was not nil when parsing optional event description", "error", err)
-		// This is purposefull empty because we should never get here since this isn't required
-	}
-	err = handleICSProp(event.GetProperty(ics.ComponentPropertyLocation), false, func(val string) error {
-		e.Description = val
-		return nil
-	})
-	if err != nil {
-		slog.Default().Warn("Err was not nil when parsing optional event location", "error", err)
-		// This is purposefull empty because we should never get here since this isn't required
-	}
-	return nil
-}
-
-type Cal struct {
-	logger slog.Logger
-	// TODO: This should be updated to handle like an SQLite db or some sort of persisted KV store
-	events map[string][]Event
-}
-
-// Events implements Commands.
-func (c Cal) Events() map[string][]Event {
-	return c.events
-}
-
-func (c Cal) Subscribe(url string) error {
-	cal, err := ics.ParseCalendarFromUrl(url)
-	if err != nil {
-		return errors.Join(errors.New("unable to fetch and parse remote ics"), err)
-	}
-	events := make([]Event, len(cal.Events()))
-	for i, event := range cal.Events() {
-		var e Event
-		err := e.ParseFromiCal(event)
-		if err != nil {
-			c.logger.Error("error parsing ical event", slog.Any("event", event), slog.Any("error", err))
-			continue
-		}
-		events[i] = e
-	}
-
-	c.events[url] = events
-
-	msg := fmt.Sprintf("subscribed to calendar at url %s with %d events...", url, len(events))
-	slog.Info(msg, slog.String("url", url), slog.Any("events", events))
-
-	return nil
-}
-
-func (c Cal) Unsubscribe(url string) error {
-	c.logger.Warn("method `Unsubscribe` not implemented")
-	return nil
-}
-
-func (c Cal) Filter(url string, field filterField, pattern regexp.Regexp) error {
-	c.logger.Warn("method `Filter` not implemented")
-	return nil
-}
 
 var (
 	BotToken  string
@@ -245,8 +121,8 @@ var (
 			},
 		},
 	}
-	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd Commands){
-		"subscribe": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd Commands) {
+	commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd c.Commands){
+		"subscribe": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd c.Commands) {
 			content := ""
 			options := i.ApplicationCommandData().Options
 			switch len(options) {
@@ -254,7 +130,7 @@ var (
 				content = "Input error: missing URL"
 			case 1:
 				url := options[0].StringValue()
-				err := cmd.Subscribe(url)
+				err := cmd.Subscribe(url, i.Interaction.GuildID)
 				if err != nil {
 					content = "Error subscribing to calendar: " + err.Error()
 					break
@@ -285,7 +161,7 @@ var (
 				slog.Default().Error("error sending response to subscribe command", slog.Any("error", err))
 			}
 		},
-		"unsubscribe": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd Commands) {
+		"unsubscribe": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd c.Commands) {
 			content := ""
 			options := i.ApplicationCommandData().Options
 			switch len(options) {
@@ -307,20 +183,23 @@ var (
 				slog.Default().Error("error sending response to subscribe command", slog.Any("error", err))
 			}
 		},
-		"filter": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd Commands) {
-
+		"filter": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd c.Commands) {
 		},
 	}
 )
 
 func Run() error {
+	db, _ := database.InitDatabase(os.Getenv("DB_PATH"))
+
+	store := store.NewSQLiteStore(db)
+
 	appID := os.Getenv("DISCORD_APP_ID")
 	discord, err := discordgo.New("Bot " + BotToken)
 	if err != nil {
 		return errors.Join(errors.New("invalid bot config"), err)
 	}
 	// TODO: Replace the default logger with a nicer library
-	cmds := Cal{events: make(map[string][]Event), logger: *slog.Default()}
+	cmds := c.NewCalendarCommands(*slog.Default(), store, discord)
 	discord.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
 			h(s, i, cmds)
