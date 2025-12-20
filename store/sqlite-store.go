@@ -60,7 +60,6 @@ func (s SQLiteStore) GetEventsByPattern(filter Filter) ([]string, error) {
 		if rows.Err() != nil {
 			return nil, fmt.Errorf("unable to scan data into id and pattern match: %w", err)
 		}
-		fmt.Println(against, !filter.Pattern.MatchString(against))
 		if !filter.Pattern.MatchString(against) {
 			ids = append(ids, id)
 		}

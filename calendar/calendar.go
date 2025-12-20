@@ -55,12 +55,10 @@ func (c Cal) Subscribe(url string, i *discordgo.InteractionCreate, filter *s.Fil
 		slog.Default().Error("error editing response to subscribe command", slog.Any("error", err))
 	}
 
-	result, err := c.s.InsertURL(url)
+	_, err = c.s.InsertURL(url)
 	if err != nil {
 		return fmt.Errorf("error inserting calendar into database: %w", err)
 	}
-
-	fmt.Println("Inserted calendar with URL:", result)
 
 	content += "\nParsing events..."
 	_, err = c.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -80,13 +78,13 @@ func (c Cal) Subscribe(url string, i *discordgo.InteractionCreate, filter *s.Fil
 
 		// Skip creating if it should be filtered
 		if filter != nil && !filter.Filter(currEvent) {
-			fmt.Printf("filtered: \n%s \n%s \n", filter.Pattern.String(), currEvent.Name)
+			c.logger.Debug("filtered event", slog.String("pattern", filter.Pattern.String()), slog.String("name", currEvent.Name))
 			continue
 		}
 
 		// Skip creating if it is in the past
 		if currEvent.StartTime.Before(time.Now()) {
-			fmt.Println("Past event")
+			c.logger.Debug("past event", slog.String("name", currEvent.Name), slog.String("startTime", currEvent.StartTime.Format("2006-1-2 3:04PM")))
 			continue
 		}
 
