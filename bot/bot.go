@@ -130,7 +130,7 @@ var (
 				content = "Input error: missing URL"
 			case 1:
 				url := options[0].StringValue()
-				err := cmd.Subscribe(url, i.Interaction.GuildID)
+				err := cmd.Subscribe(url, i, nil)
 				if err != nil {
 					content = "Error subscribing to calendar: " + err.Error()
 					break
@@ -146,7 +146,19 @@ var (
 					content = "Input error: invalid input options, missing additional optional field"
 				}
 			case 3:
-				// TODO: Add implementation for subscribe AND filter
+				url := options[0].StringValue()
+				field := options[1].StringValue()
+				pattern := options[2].StringValue()
+				filter, err := store.NewFilter(url, field, pattern)
+				if err != nil {
+					content = "Error subscribing with filter: " + err.Error()
+					break
+				}
+				err = cmd.Subscribe(url, i, filter)
+				if err != nil {
+					content = "Error subscribing to calendar: " + err.Error()
+					break
+				}
 				content = "SUBSCRIBE WITH FILTER"
 			default:
 				content = "Input error: invalid input options"
@@ -184,6 +196,23 @@ var (
 			}
 		},
 		"filter": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd c.Commands) {
+			options := i.ApplicationCommandData().Options
+			url := options[0].StringValue()
+			field := options[1].StringValue()
+			pattern := options[2].StringValue()
+			err := cmd.Filter(url, field, pattern, i)
+			if err != nil {
+				slog.Default().Error("error filtering events", slog.String("url", url), slog.String("field", field), slog.String("pattern", pattern), slog.Any("error", err))
+			}
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Filtered events",
+				},
+			})
+			if err != nil {
+				slog.Default().Error("error sending response to subscribe command", slog.Any("error", err))
+			}
 		},
 	}
 )

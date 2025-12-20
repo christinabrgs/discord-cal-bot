@@ -24,12 +24,12 @@ func InitDatabase(dbPath string) (*sql.DB, error) {
 			last_synced TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id TEXT PRIMARY KEY,
 			calendar_url TEXT NOT NULL REFERENCES calendars(url),
 			name TEXT NOT NULL,
-			description TEXT,
+			description TEXT NOT NULL,
 			start_time TIMESTAMP NOT NULL,
-			end_time TIMESTAMP,
+			end_time TIMESTAMP NOT NULL,
 			location TEXT
 		);
 		CREATE TABLE IF NOT EXISTS filters (
