@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"time"
 
 	e "git.phlcode.club/discord-bot/events"
 	s "git.phlcode.club/discord-bot/store"
@@ -14,7 +15,6 @@ import (
 
 type Cal struct {
 	logger  slog.Logger
-	events  map[string][]e.Event
 	session *discordgo.Session
 	s       s.Store
 }
@@ -22,32 +22,53 @@ type Cal struct {
 func NewCalendarCommands(logger slog.Logger, s s.Store, session *discordgo.Session) Commands {
 	return Cal{
 		logger:  logger,
-		events:  make(map[string][]e.Event),
 		s:       s,
 		session: session,
 	}
 }
 
 // Events implements Commands.
-func (c Cal) Events() map[string][]e.Event {
-	return c.events
+func (c Cal) Events(url string) ([]e.Event, error) {
+	return c.s.GetEventsForURL(url)
 }
 
-func (c Cal) Subscribe(url string, guildID string) error {
+func (c Cal) Subscribe(url string, i *discordgo.InteractionCreate, filter *s.Filter) error {
+	content := "Subscribing to calendar at: " + url
+	err := c.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+		},
+	})
+	if err != nil {
+		slog.Default().Error("error sending response to subscribe command", slog.Any("error", err))
+	}
 	cal, err := ics.ParseCalendarFromUrl(url)
 	if err != nil {
 		return errors.Join(errors.New("unable to fetch and parse remote ics"), err)
 	}
+	content += "\nParsed calendar"
+	_, err = c.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+	})
+	if err != nil {
+		slog.Default().Error("error editing response to subscribe command", slog.Any("error", err))
+	}
 
-	result, err := c.s.InsertURL(url)
+	_, err = c.s.InsertURL(url)
 	if err != nil {
 		return fmt.Errorf("error inserting calendar into database: %w", err)
 	}
 
-	fmt.Println("Inserted calendar with URL:", result)
-
-	events := make([]e.Event, len(cal.Events()))
-	for i, event := range cal.Events() {
+	content += "\nParsing events..."
+	_, err = c.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+	})
+	if err != nil {
+		slog.Default().Error("error editing response to subscribe command", slog.Any("error", err))
+	}
+	events := make([]e.Event, 0, len(cal.Events()))
+	for _, event := range cal.Events() {
 		var currEvent e.Event
 		err := currEvent.ParseFromiCal(event)
 		if err != nil {
@@ -55,15 +76,19 @@ func (c Cal) Subscribe(url string, guildID string) error {
 			continue
 		}
 
-		result, err := c.s.InsertEvent(url, currEvent)
-		if err != nil {
-			return fmt.Errorf("error inserting event into database: %w", err)
+		// Skip creating if it should be filtered
+		if filter != nil && !filter.Filter(currEvent) {
+			c.logger.Debug("filtered event", slog.String("pattern", filter.Pattern.String()), slog.String("name", currEvent.Name))
+			continue
 		}
-		events[i] = currEvent
 
-		fmt.Println("Inserted event with ID:", result)
+		// Skip creating if it is in the past
+		if currEvent.StartTime.Before(time.Now()) {
+			c.logger.Debug("past event", slog.String("name", currEvent.Name), slog.String("startTime", currEvent.StartTime.Format("2006-1-2 3:04PM")))
+			continue
+		}
 
-		event, err := c.session.GuildScheduledEventCreate(guildID, &discordgo.GuildScheduledEventParams{
+		event, err := c.session.GuildScheduledEventCreate(i.GuildID, &discordgo.GuildScheduledEventParams{
 			Name:               currEvent.Name,
 			Description:        currEvent.Description,
 			ScheduledStartTime: &currEvent.StartTime,
@@ -79,33 +104,92 @@ func (c Cal) Subscribe(url string, guildID string) error {
 			return fmt.Errorf("error creating discord guild scheduled event: %w", err)
 		}
 
-		// store discord event ID in the database associated with this event
-		_ = event
-	}
+		currEvent.ID = event.ID
 
-	// c.events[url] = events
+		_, err = c.s.InsertEvent(url, currEvent)
+		if err != nil {
+			return fmt.Errorf("error inserting event into database: %w", err)
+		}
+
+		events = append(events, currEvent)
+		content += "\nAdded event " + currEvent.Name
+		_, err = c.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: &content,
+		})
+		if err != nil {
+			slog.Default().Error("error editing response to subscribe command", slog.Any("error", err))
+		}
+	}
 
 	msg := fmt.Sprintf("subscribed to calendar at url %s with %d events...", url, len(events))
-	slog.Info(msg, slog.String("url", url), slog.Any("events", c.events))
-
-	return nil
+	content += "\n" + msg
+	_, err = c.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+	})
+	slog.Info(msg, slog.String("url", url), slog.Any("events", events))
+	return err
 }
 
-func (c Cal) Unsubscribe(url string) error {
-	// TODO send message for successful deletion to discord
-	_, err := c.s.DeleteCalendarByURL(url)
-	if err != nil {
-		return fmt.Errorf("error deleting calendar from database: %w", err)
-	}
-	_, err = c.s.DeleteEventsByURL(url)
+func (c Cal) Unsubscribe(url string, i *discordgo.InteractionCreate) error {
+	// TODO: This should really be a transaction
+	ids, err := c.s.DeleteEventsByURL(url)
 	if err != nil {
 		return fmt.Errorf("error deleting events from database: %w", err)
 	}
-
+	eventDeleteErrors := make([]error, 0)
+	for _, id := range ids {
+		err := c.session.GuildScheduledEventDelete(i.GuildID, id)
+		if err != nil {
+			eventDeleteErrors = append(eventDeleteErrors, err)
+		}
+	}
+	if len(eventDeleteErrors) > 0 {
+		return fmt.Errorf("error deleting events from discord: %+v", eventDeleteErrors)
+	}
+	_, err = c.s.DeleteCalendarByURL(url)
+	if err != nil {
+		return fmt.Errorf("error deleting calendar from database: %w", err)
+	}
 	return nil
 }
 
-func (c Cal) Filter(url string, field string, pattern regexp.Regexp) error {
-	c.logger.Warn("method `Filter` not implemented")
-	return nil
+func (c Cal) Filter(url, field, pattern string, i *discordgo.InteractionCreate) error {
+	var f s.FilterField
+	switch field {
+	case s.FilterFieldName:
+		f = s.FilterFieldName
+	case s.FilterFieldDescription:
+		f = s.FilterFieldDescription
+	case s.FilterFieldLocation:
+		f = s.FilterFieldLocation
+	default:
+		return fmt.Errorf("invalid filter field: %s", field)
+	}
+	regex, err := regexp.Compile(pattern)
+	if err != nil {
+		return fmt.Errorf("invalid regex pattern: %s", err)
+	}
+	filter, err := c.s.CreateFilter(url, f, *regex)
+	if err != nil {
+		return fmt.Errorf("unable to store filter: %s", err)
+	}
+	ids, err := c.s.GetEventsByPattern(filter)
+	if err != nil {
+		return fmt.Errorf("unable to fetch events from db: %s", err)
+	}
+	eventDeleteErrors := make([]error, 0)
+	for _, id := range ids {
+		err := c.session.GuildScheduledEventDelete(i.GuildID, id)
+		if err != nil {
+			eventDeleteErrors = append(eventDeleteErrors, err)
+		}
+	}
+	if len(eventDeleteErrors) > 0 {
+		return fmt.Errorf("discord event delete errors: %+v", eventDeleteErrors)
+	}
+	err = c.s.DeleteEventsByIDs(ids)
+	if err != nil {
+		return fmt.Errorf("unable to delete events from db: %s", err)
+	}
+	return err
 }

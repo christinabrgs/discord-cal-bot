@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"log"
 	"log/slog"
 	"os"
 
@@ -14,32 +12,31 @@ import (
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		slog.Error("Error loading .env file", slog.Any("error", err))
+		os.Exit(66)
 	}
 
-	dbPath := os.Getenv("DB_PATH")
-	if len(dbPath) == 0 {
-		log.Fatal("specify the DB_PATH environment variable")
+	dbPath, ok := os.LookupEnv("DB_PATH")
+	if !ok {
+		slog.Error("specify the DB_PATH environment variable")
+		os.Exit(64)
 	}
 	db, err := database.InitDatabase(dbPath)
 	if err != nil {
-		log.Fatal("error initializing DB connection: ", err)
+		slog.Error("error initializing DB connection", slog.Any("error", err))
+		os.Exit(66)
 	}
-	err = db.Ping()
-	if err != nil {
-		log.Fatal("error initializing DB connection: ping error: ", err)
+	slog.Debug("database initialized...")
+
+	token, ok := os.LookupEnv("DISCORD_TOKEN")
+	if !ok {
+		slog.Error("specify the DISCORD_TOKEN environment variable")
+		os.Exit(64)
 	}
-	fmt.Println("database initialized..")
 
-	token := os.Getenv("DISCORD_TOKEN")
-	appID := os.Getenv("DISCORD_APP_ID")
-
-	log.Printf("Token length: %d", len(token))
-	log.Printf("App ID: %s", appID)
-
-	bot.BotToken = token
-	err = bot.Run()
+	err = bot.Run(db, token)
 	if err != nil {
 		slog.Error("unable to start bot", slog.Any("error", err))
+		os.Exit(3)
 	}
 }

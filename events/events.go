@@ -11,6 +11,7 @@ import (
 )
 
 type Event struct {
+	ID          string
 	Name        string
 	Description string
 	StartTime   time.Time
@@ -60,7 +61,6 @@ func (e *Event) ParseFromiCal(event *ics.VEvent) error {
 		// This is purposefull empty because we should never get here since this isn't required
 	}
 	err = u.HandleICSProp(event.GetProperty(ics.ComponentPropertyLocation), false, func(val string) error {
-		fmt.Println("Location: ", val)
 		e.Location = val
 		return nil
 	})

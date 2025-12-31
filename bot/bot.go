@@ -5,14 +5,13 @@
 package bot
 
 import (
+	"database/sql"
 	"errors"
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 
 	c "git.phlcode.club/discord-bot/calendar"
-	"git.phlcode.club/discord-bot/database"
 	"git.phlcode.club/discord-bot/store"
 	"github.com/bwmarrin/discordgo"
 )
@@ -28,7 +27,6 @@ const (
 )
 
 var (
-	BotToken  string
 	eventPerm int64 = discordgo.PermissionManageEvents
 	urlOpt          = discordgo.ApplicationCommandOption{
 		Type:        discordgo.ApplicationCommandOptionString,
@@ -130,7 +128,7 @@ var (
 				content = "Input error: missing URL"
 			case 1:
 				url := options[0].StringValue()
-				err := cmd.Subscribe(url, i.Interaction.GuildID)
+				err := cmd.Subscribe(url, i, nil)
 				if err != nil {
 					content = "Error subscribing to calendar: " + err.Error()
 					break
@@ -146,7 +144,19 @@ var (
 					content = "Input error: invalid input options, missing additional optional field"
 				}
 			case 3:
-				// TODO: Add implementation for subscribe AND filter
+				url := options[0].StringValue()
+				field := options[1].StringValue()
+				pattern := options[2].StringValue()
+				filter, err := store.NewFilter(url, field, pattern)
+				if err != nil {
+					content = "Error subscribing with filter: " + err.Error()
+					break
+				}
+				err = cmd.Subscribe(url, i, filter)
+				if err != nil {
+					content = "Error subscribing to calendar: " + err.Error()
+					break
+				}
 				content = "SUBSCRIBE WITH FILTER"
 			default:
 				content = "Input error: invalid input options"
@@ -184,22 +194,41 @@ var (
 			}
 		},
 		"filter": func(s *discordgo.Session, i *discordgo.InteractionCreate, cmd c.Commands) {
+			options := i.ApplicationCommandData().Options
+			url := options[0].StringValue()
+			field := options[1].StringValue()
+			pattern := options[2].StringValue()
+			err := cmd.Filter(url, field, pattern, i)
+			if err != nil {
+				slog.Default().Error("error filtering events", slog.String("url", url), slog.String("field", field), slog.String("pattern", pattern), slog.Any("error", err))
+			}
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Filtered events",
+				},
+			})
+			if err != nil {
+				slog.Default().Error("error sending response to subscribe command", slog.Any("error", err))
+			}
 		},
 	}
 )
 
-func Run() error {
-	db, _ := database.InitDatabase(os.Getenv("DB_PATH"))
-
+func Run(db *sql.DB, token string) error {
 	store := store.NewSQLiteStore(db)
 
 	appID := os.Getenv("DISCORD_APP_ID")
-	discord, err := discordgo.New("Bot " + BotToken)
+	discord, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return errors.Join(errors.New("invalid bot config"), err)
 	}
+	logger := slog.Default()
+	if os.Getenv("ENV") == "prod" {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	}
 	// TODO: Replace the default logger with a nicer library
-	cmds := c.NewCalendarCommands(*slog.Default(), store, discord)
+	cmds := c.NewCalendarCommands(*logger, store, discord)
 	discord.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
 			h(s, i, cmds)
@@ -209,22 +238,24 @@ func Run() error {
 	for i, v := range commands {
 		cmd, err := discord.ApplicationCommandCreate(appID, "", v)
 		if err != nil {
-			log.Panicf("Cannot create '%v' command: %v", v.Name, err)
+			logger.Error("Cannot create command", slog.String("cmdName", v.Name), slog.Any("error", err))
+			return err
 		}
 		registeredCommands[i] = cmd
 	}
 
 	err = discord.Open()
 	if err != nil {
-		slog.Default().Error("unable to open discord socket", slog.Any("error", err))
+		logger.Error("unable to open discord socket", slog.Any("error", err))
+		return err
 	}
 	defer func() {
 		if err := discord.Close(); err != nil {
-			slog.Default().Error("unable to close discod socket", slog.Any("error", err))
+			logger.Error("unable to close discod socket", slog.Any("error", err))
 		}
 	}()
 
-	slog.Default().Info("bot running...")
+	logger.Info("bot running...")
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	<-c
@@ -232,7 +263,7 @@ func Run() error {
 	for _, v := range registeredCommands {
 		err := discord.ApplicationCommandDelete(discord.State.User.ID, "", v.ID)
 		if err != nil {
-			slog.Error("Cannot delete command", slog.String("name", v.Name), slog.Any("error", err))
+			logger.Error("Cannot delete command", slog.String("name", v.Name), slog.Any("error", err))
 		}
 	}
 	return nil
