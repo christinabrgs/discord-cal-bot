@@ -13,6 +13,7 @@ import (
 
 	c "git.phlcode.club/discord-bot/calendar"
 	"git.phlcode.club/discord-bot/store"
+	"git.phlcode.club/discord-bot/utils"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -217,8 +218,8 @@ var (
 
 func Run(db *sql.DB, token string) error {
 	store := store.NewSQLiteStore(db)
-
-	appID := os.Getenv("DISCORD_APP_ID")
+	e := utils.GetEnv()
+	appID := e.DiscordAppID
 	discord, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return errors.Join(errors.New("invalid bot config"), err)
